@@ -63,7 +63,7 @@ var elementMap = Object.create(null);
 
 async function g_control(element) {
   var cls = await element.getAttribute('class');
-  if (cls === null)
+  if (cls === null || cls.length == 0)
     return null;
   cls = cls.split(' ');
   if (cls.includes('box'))
@@ -76,19 +76,28 @@ async function g_control(element) {
     return 'TextInput';
   if (cls.includes('headtext'))
     return 'TextBlock';
+  if (cls.includes('page'))
+    return 'webpage';
+  if (cls.includes('groupmember'))
+    return null;
+  if (cls.includes('scrollv'))
+    return 'vert-scroll';
+  if (cls.includes('annotate'))
+    return null;
   console.error(
-    `${new Date()} [ControlType::Match] No matching control type found for class list ${cls}`
+    `[${new Date().toLocaleTimeString()}] [ControlType::Match] No matching control type found for class list ${cls}`
   );
   return null;
 }
 
 function highlight_tick(driver, element) {
   driver.executeScript(
-    `let el=arguments[0]; let old = el.style.border; el.style.border='1px solid red'; setTimeout(function () { el.style.border=old; }, 80);`,
+    `let el=arguments[0]; let old = el.style.backgroundColor; el.style.backgroundColor = "#FDFF47"; setTimeout(function () { el.style.backgroundColor=old; }, 80);`,
     element);
 }
 
 var initialRoot = null;
+var initialRootId = null;
 
 async function labelof(driver, element) {
   if (initialRoot === null)
@@ -97,7 +106,7 @@ async function labelof(driver, element) {
     'return labelof(arguments[0], arguments[1])',
     initialRoot, element);
   console.error(
-    `${new Date()} [ElementCompiler::CompileControl::Button::LabelOf] resolved to ${overlapping}`
+    `[${new Date().toLocaleTimeString()}] [ElementCompiler::CompileControl::Button::LabelOf] resolved to ${overlapping}`
   );
 
   if (overlapping.length == 1)
@@ -106,12 +115,37 @@ async function labelof(driver, element) {
     return null;
   else {
     console.error(
-      `${new Date()} [ElementCompiler::OverlappingElements] Several (${overlapping.length}) overlapping elements found, selecting first`
+      `[${new Date().toLocaleTimeString()}] [ElementCompiler::OverlappingElements] Several (${overlapping.length}) overlapping elements found, selecting first`
     );
     return overlapping[0];
   }
 }
 
+async function getRect(element) {
+  var rect = await element.getRect();
+  if (rect.x === undefined || rect.y === undefined)
+    return rect; // meh
+  if (rect.w && rect.h)
+    return rect;
+  var wh = await element.getDriver().executeScript(
+    'return [arguments[0].clientWidth, arguments[0].clientHeight];',
+    element);
+  return {
+    x: rect.x,
+    y: rect.y,
+    w: wh[0],
+    h: wh[1]
+  };
+}
+
+async function traverse_children(driver, element, obj, parent) {
+  let children = await element.findElements(By.xpath('*'));
+  for (var child of children) {
+    await reverse_dfs(driver, child, parent ? parent : obj);
+  }
+  if (parent !== null)
+    parent.children.push(obj);
+}
 async function reverse_dfs(driver, element, parent) {
   var obj = Object.create(null);
   highlight_tick(driver, element);
@@ -119,15 +153,23 @@ async function reverse_dfs(driver, element, parent) {
   if (elementMap[id])
     return elementMap[id];
   elementMap[id] = obj;
-
+  let {
+    x, y, w, h
+  } = await getRect(element);
+  console.log(`Element ${id} is at {x: ${x}, y: ${y}, w: ${w}, h: ${h}}`);
+  var type = await element.getTagName();
+  if (type != 'div' && (!w || !h)) {
+    // not visible
+    console.error(
+      `[${new Date().toLocaleTimeString()}] [ElementCompiler] Element ${id}(${type}) has no width (${w}) or no height (${h})`
+    );
+    // return undefined;
+  }
   obj['controls'] = {
     control: []
   };
   obj.children = [];
   obj['ID'] = activeElementId++;
-  let {
-    x, y, w, h
-  } = await element.getRect();
   obj['w'] = w;
   obj['h'] = h;
   obj['x'] = x;
@@ -136,8 +178,15 @@ async function reverse_dfs(driver, element, parent) {
   obj['measuredW'] = w;
   obj['zOrder'] = await element.getCssValue('z-order') || 0;
   obj['properties'] = Object.create(null);
-  var type = await element.getTagName();
+
   switch (type) {
+    // the Unhandled
+    case 'line':
+    case 'svg':
+      console.error(
+        `[${new Date().toLocaleTimeString()}] [ControlType] Ignoring Element ${g}`
+      );
+      break;
     case 'i':
       obj.properties['style'] = 'italic';
     case 'p':
@@ -148,7 +197,7 @@ async function reverse_dfs(driver, element, parent) {
       break;
     default:
       console.error(
-        `${new Date()} [ElementCompiler] Unhandled element type ${type}, treating as a group`
+        `[${new Date().toLocaleTimeString()}] [ElementCompiler] Unhandled element type ${type}, treating as a group`
       );
     case 'div':
     case 'span':
@@ -170,7 +219,7 @@ async function reverse_dfs(driver, element, parent) {
               elementMap[await text.getId()] = {};
             } else {
               console.error(
-                `${new Date()} [ElementCompiler::CompileControl::Button] no <p> element over this button ${element} to serve as a name: got some ${text}`
+                `[${new Date().toLocaleTimeString()}] [ElementCompiler::CompileControl::Button] no <p> element over this button ${element} to serve as a name: got some ${text}`
               );
             }
             parent.controls.control.push(obj);
@@ -187,19 +236,31 @@ async function reverse_dfs(driver, element, parent) {
             obj['typeID'] = 'TextBlock';
             parent.controls.control.push(obj);
             break;
+          case 'webpage':
+            obj['typeID'] = 'BrowserWindow';
+            obj.properties['text'] =
+              `https://some.site/page?id=${initialRootId}`;
+            if (parent)
+              console.error(
+                `[${new Date().toLocaleTimeString()}] [ElementCompiler::CompileControl::WebBrowser] This webpage ${initialRootId} is inside another? parent = ${parent}`
+              );
+            await traverse_children(driver, element, obj, parent);
+            break;
+          case 'TextArea':
+            obj['typeID'] = 'TextArea';
+            parent.controls.control.push(obj);
+            break;
           default:
             console.error(
-              `${new Date()} [ControlType] Unknown control type ${g}`);
+              `[${new Date().toLocaleTimeString()}] [ControlType] Unknown element control type ${g}`
+            );
             break;
         }
       } else {
         obj['typeID'] = '__group__';
-        let children = await element.findElements(By.xpath('*'));
-        for (var child of children) {
-          await reverse_dfs(driver, child, parent ? parent : obj);
-        }
-        if (parent !== null)
-          parent.children.push(obj);
+        obj['_original_tag'] = type;
+        obj['_original_classlist'] = await element.getAttribute('class');
+        await traverse_children(driver, element, obj, parent);
       }
       break;
   }
@@ -269,7 +330,9 @@ async function reverse_dfs(driver, element, parent) {
     var insert = [];
     for (let element of sitemap) {
       let pageid = await element.getAttribute('data-pageid');
-      console.error(`${new Date()} [Toplevel] Processing page ${pageid}`)
+      console.error(
+        `[${new Date().toLocaleTimeString()}] [Toplevel] Processing page ${pageid}`
+      )
       await element.click();
       if (sitemap_b1 === null)
         sitemap_b1 = await driver.findElement(By.xpath(
@@ -278,8 +341,9 @@ async function reverse_dfs(driver, element, parent) {
       /*
       Do fun stuff with the current page
       */
-      var e_rect = await element.getRect();
+      var e_rect = await getRect(element);
       initialRoot = await driver.findElement(By.id(pageid));
+      initialRootId = pageid;
       var insertion = [{
         name: await element.getText(),
         thumbnailID: pageThumbnailId++,
@@ -311,6 +375,6 @@ async function reverse_dfs(driver, element, parent) {
     // console.log(JSON.stringify(insert));
     // await driver.wait(until.titleIs('webdriver - Google Search'), 5000);
   } finally {
-    await driver.quit();
+    // await driver.quit();
   }
 })();
