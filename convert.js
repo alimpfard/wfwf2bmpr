@@ -89,7 +89,7 @@ async function g_control(element) {
   if (cls.includes('headline'))
     return 'headline';
   console.error(
-    `[${new Date().toLocaleTimeString()}] [ControlType::Match] No matching control type found for class list ${cls}`
+    `[${new Date().toLocaleTimeString('it-IT')}] [WARNING] [ControlType::Match] No matching control type found for class list ${cls}`
   );
   return null;
 }
@@ -110,7 +110,7 @@ async function labelof(driver, element) {
     'return labelof(arguments[0], arguments[1])',
     initialRoot, element);
   console.error(
-    `[${new Date().toLocaleTimeString()}] [ElementCompiler::CompileControl::Button::LabelOf] resolved to ${overlapping}`
+    `[${new Date().toLocaleTimeString('it-IT')}] [INFO] [ElementCompiler::CompileControl::Button::LabelOf] resolved to ${overlapping}`
   );
 
   if (overlapping.length == 1)
@@ -119,7 +119,7 @@ async function labelof(driver, element) {
     return null;
   else {
     console.error(
-      `[${new Date().toLocaleTimeString()}] [ElementCompiler::OverlappingElements] Several (${overlapping.length}) overlapping elements found, selecting first`
+      `[${new Date().toLocaleTimeString('it-IT')}] [WARNING] [ElementCompiler::OverlappingElements] Several (${overlapping.length}) overlapping elements found, selecting first`
     );
     return overlapping[0];
   }
@@ -175,13 +175,13 @@ async function reverse_dfs(driver, element, parent, insert) {
     x, y, w, h
   } = await getRect(element);
   console.error(
-    `[${new Date().toLocaleTimeString()}] [ElementCompiler::DiscoverElement] Element ${id} is at {x: ${x}, y: ${y}, w: ${w}, h: ${h}}`
+    `[${new Date().toLocaleTimeString('it-IT')}] [INFO] [ElementCompiler::DiscoverElement] Element ${id} is at {x: ${x}, y: ${y}, w: ${w}, h: ${h}}`
   );
   var type = await element.getTagName();
   if (type != 'div' && (!w || !h)) {
     // not visible
     console.error(
-      `[${new Date().toLocaleTimeString()}] [ElementCompiler] Element ${id}(${type}) has no width (${w}) or no height (${h})`
+      `[${new Date().toLocaleTimeString('it-IT')}] [ERROR] [ElementCompiler] Element ${id}(${type}) has no width (${w}) or no height (${h})`
     );
     // return undefined;
   }
@@ -204,12 +204,12 @@ async function reverse_dfs(driver, element, parent, insert) {
     // the Unhandled
     case 'line':
       console.error(
-        `[${new Date().toLocaleTimeString()}] [ControlType] Ignoring Element ${g}`
+        `[${new Date().toLocaleTimeString('it-IT')}] [WARNING] [ControlType] Ignoring Element ${g}`
       );
       break;
     case 'svg':
       console.error(
-        `[${new Date().toLocaleTimeString()}] [ControlType] Started rendering an SVG`
+        `[${new Date().toLocaleTimeString('it-IT')}] [INFO] [ControlType] Started rendering an SVG`
       );
       var img = await driver.executeScript(
         'return window.prerender_svg(arguments[0])', element);
@@ -219,7 +219,7 @@ async function reverse_dfs(driver, element, parent, insert) {
           'return window.render_svg(arguments[0])', img);
       }
       console.error(
-        `[${new Date().toLocaleTimeString()}] [ControlType] Finished rendering an SVG: ${data.slice(0,30)}...`
+        `[${new Date().toLocaleTimeString('it-IT')}] [INFO] [ControlType] Finished rendering an SVG: ${data.slice(0,30)}...`
       );
       var imgID = activeElementId++;
       var insertion = [{
@@ -256,7 +256,7 @@ async function reverse_dfs(driver, element, parent, insert) {
       break;
     default:
       console.error(
-        `[${new Date().toLocaleTimeString()}] [ElementCompiler] Unhandled element type ${type}, treating as a group`
+        `[${new Date().toLocaleTimeString('it-IT')}] [ERROR] [INTERNAL] [ElementCompiler] Unhandled element type ${type}, treating as a group`
       );
     case 'div':
     case 'span':
@@ -266,10 +266,6 @@ async function reverse_dfs(driver, element, parent, insert) {
         switch (g) {
           case 'box':
             obj['typeID'] = 'Canvas';
-            obj.zOrder = 3; //?
-            console.error(
-              `[${new Date().toLocaleTimeString()}] [ElementCompiler::CompileControl::Canvas] generated ${JSON.stringify(obj)}`
-            );
             for (let el of await element.findElements(By.xpath('*')))
               await reverse_dfs(driver, el, obj, insert);
             parent.controls.control.push(obj);
@@ -282,7 +278,7 @@ async function reverse_dfs(driver, element, parent, insert) {
               elementMap[await text.getId()] = {};
             } else {
               console.error(
-                `[${new Date().toLocaleTimeString()}] [ElementCompiler::CompileControl::Button] no <p> element over this button ${element} to serve as a name: got some ${text}`
+                `[${new Date().toLocaleTimeString('it-IT')}] [ERROR] [FORM] [ElementCompiler::CompileControl::Button] no <p> element over this button ${element} to serve as a name: got some ${text}`
               );
             }
             parent.controls.control.push(obj);
@@ -305,7 +301,7 @@ async function reverse_dfs(driver, element, parent, insert) {
               `https://some.site/page?id=${initialRootId}`;
             if (parent)
               console.error(
-                `[${new Date().toLocaleTimeString()}] [ElementCompiler::CompileControl::WebBrowser] This webpage ${initialRootId} is inside another? parent = ${parent}`
+                `[${new Date().toLocaleTimeString('it-IT')}] [ERROR] [ElementCompiler::CompileControl::WebBrowser] This webpage ${initialRootId} is inside another? parent = ${parent}`
               );
             await traverse_children(driver, element, obj, parent, insert);
             break;
@@ -362,7 +358,7 @@ async function reverse_dfs(driver, element, parent, insert) {
             break;
           default:
             console.error(
-              `[${new Date().toLocaleTimeString()}] [ControlType] Unknown element control type ${g}`
+              `[${new Date().toLocaleTimeString('it-IT')}] [ERROR] [ControlType] Unknown element control type ${g}`
             );
             break;
         }
@@ -460,7 +456,7 @@ async function reverse_dfs(driver, element, parent, insert) {
     for (let element of sitemap) {
       let pageid = await element.getAttribute('data-pageid');
       console.error(
-        `[${new Date().toLocaleTimeString()}] [Toplevel] Processing page ${pageid}`
+        `[${new Date().toLocaleTimeString('it-IT')}] [INFO] [Toplevel] Processing page ${pageid}`
       );
       if (process.argv.includes('--pages') && !process.argv.includes(pageid))
         continue;
