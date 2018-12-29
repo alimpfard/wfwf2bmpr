@@ -3,3 +3,6 @@ all: clean
 
 clean:
 	rm out.json converted.bmpr || true
+
+generate_unsupported_list:
+	grep 'ControlType::Match' log | cut -f12- -d' ' | sort | uniq > unsupported

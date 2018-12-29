@@ -54,7 +54,7 @@ function rundbshit(back) {
 }
 
 const {
-  realpathSync
+  realpathSync, readFileSync
 } = require('fs');
 
 var activeElementId = 0;
@@ -138,15 +138,15 @@ async function getRect(element) {
   };
 }
 
-async function traverse_children(driver, element, obj, parent) {
+async function traverse_children(driver, element, obj, parent, insert) {
   let children = await element.findElements(By.xpath('*'));
   for (var child of children) {
-    await reverse_dfs(driver, child, parent ? parent : obj);
+    await reverse_dfs(driver, child, parent ? parent : obj, insert);
   }
   if (parent !== null)
     parent.children.push(obj);
 }
-async function reverse_dfs(driver, element, parent) {
+async function reverse_dfs(driver, element, parent, insert) {
   var obj = Object.create(null);
   highlight_tick(driver, element);
   var id = await element.getId();
@@ -183,10 +183,43 @@ async function reverse_dfs(driver, element, parent) {
   switch (type) {
     // the Unhandled
     case 'line':
-    case 'svg':
       console.error(
         `[${new Date().toLocaleTimeString()}] [ControlType] Ignoring Element ${g}`
       );
+      break;
+    case 'svg':
+      console.error(
+        `[${new Date().toLocaleTimeString()}] [ControlType] Started rendering an SVG`
+      );
+      var img = await driver.executeScript(
+        'return window.prerender_svg(arguments[0])', element);
+      var data = null;
+      while (data === null) {
+        data = await driver.executeScript(
+          'return window.render_svg(arguments[0])', img);
+      }
+      console.error(
+        `[${new Date().toLocaleTimeString()}] [ControlType] Finished rendering an SVG: ${data.slice(0,30)}...`
+      );
+      var imgID = activeElementId++;
+      var insertion = [{
+        name: `drawing${imgID}`,
+        thumbnailID: pageThumbnailId++,
+        order: 926494.1048855776,
+        importedFrom: "",
+        trashed: false,
+        kind: "otherAsset",
+        mimeType: "base64/png",
+        creationDate: 0,
+        notes: null
+      }, data, imgID];
+      insert.push(insertion);
+      obj['typeID'] = 'Image';
+      obj.properties['src'] = {
+        Anchor: -1,
+        ID: imgID
+      };
+      parent.controls.control.push(obj);
       break;
     case 'i':
       obj.properties['style'] = 'italic';
@@ -213,7 +246,7 @@ async function reverse_dfs(driver, element, parent) {
               `[${new Date().toLocaleTimeString()}] [ElementCompiler::CompileControl::Canvas] generated ${JSON.stringify(obj)}`
             );
             for (let el of await element.findElements(By.xpath('*')))
-              await reverse_dfs(driver, el, obj);
+              await reverse_dfs(driver, el, obj, insert);
             parent.controls.control.push(obj);
             break;
           case 'button':
@@ -249,7 +282,7 @@ async function reverse_dfs(driver, element, parent) {
               console.error(
                 `[${new Date().toLocaleTimeString()}] [ElementCompiler::CompileControl::WebBrowser] This webpage ${initialRootId} is inside another? parent = ${parent}`
               );
-            await traverse_children(driver, element, obj, parent);
+            await traverse_children(driver, element, obj, parent, insert);
             break;
           case 'TextArea':
             obj['typeID'] = 'TextArea';
@@ -265,7 +298,7 @@ async function reverse_dfs(driver, element, parent) {
         obj['typeID'] = '__group__';
         obj['_original_tag'] = type;
         obj['_original_classlist'] = await element.getAttribute('class');
-        await traverse_children(driver, element, obj, parent);
+        await traverse_children(driver, element, obj, parent, insert);
       }
       break;
   }
@@ -322,6 +355,25 @@ async function reverse_dfs(driver, element, parent) {
         console.log(res);
         console.log('=====================================');
         return res;
+      }
+      window.prerender_svg = function(svg) {
+        var svgData = new XMLSerializer().serializeToString( svg );
+
+        var img = document.createElement( "img" );
+        img.setAttribute( "src", "data:image/svg+xml;base64," + btoa( svgData ) );
+        img.style.visibility='hidden';
+        document.body.appendChild(img);
+        return img;
+      }
+      window.render_svg = function(img) {
+        if(!img.complete) {
+            return null;
+        }
+        var canvas = document.createElement( "canvas" );
+        var ctx = canvas.getContext( "2d" );
+        ctx.drawImage( img, 0, 0 );
+        img.remove();
+        return canvas.toDataURL( "image/png" );
       }`
     );
     if (process.argv.includes('--skip'))
@@ -367,15 +419,15 @@ async function reverse_dfs(driver, element, parent) {
         measuredW: e_rect.w,
         mockupH: e_rect.h,
         mockupW: e_rect.w,
-        mockup: await reverse_dfs(driver, initialRoot, null)
-      }];
+        mockup: await reverse_dfs(driver, initialRoot, null, insert)
+      }, activeElementId++];
       insert.push(insertion);
     }
     rundbshit(function(db) {
       let stmt = db.prepare(
         'INSERT INTO RESOURCES VALUES (?, ?, ?, ?)');
       for (let iv of insert)
-        stmt.run(activeElementId++, 'Master', JSON.stringify(iv[0]), JSON
+        stmt.run(iv[2], 'Master', JSON.stringify(iv[0]), JSON
           .stringify(iv[1]));
       stmt.finalize();
     });
