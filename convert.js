@@ -176,7 +176,8 @@ async function reverse_dfs(driver, element, parent) {
   obj['y'] = y;
   obj['measuredH'] = h;
   obj['measuredW'] = w;
-  obj['zOrder'] = await element.getCssValue('z-order') || 0;
+  obj['zOrder'] = +await driver.executeScript(
+    'return arguments[0].style.zIndex', element);
   obj['properties'] = Object.create(null);
 
   switch (type) {
@@ -206,10 +207,14 @@ async function reverse_dfs(driver, element, parent) {
         // we have a special element
         switch (g) {
           case 'box':
-            obj['typeID'] = 'Rectangle';
+            obj['typeID'] = 'Canvas';
+            obj.zOrder = 3; //?
+            console.error(
+              `[${new Date().toLocaleTimeString()}] [ElementCompiler::CompileControl::Canvas] generated ${JSON.stringify(obj)}`
+            );
             for (let el of await element.findElements(By.xpath('*')))
               await reverse_dfs(driver, el, obj);
-            parent.children.push(obj);
+            parent.controls.control.push(obj);
             break;
           case 'button':
             obj['typeID'] = 'Button';
@@ -332,7 +337,9 @@ async function reverse_dfs(driver, element, parent) {
       let pageid = await element.getAttribute('data-pageid');
       console.error(
         `[${new Date().toLocaleTimeString()}] [Toplevel] Processing page ${pageid}`
-      )
+      );
+      if (process.argv.includes('--pages') && !process.argv.includes(pageid))
+        continue;
       await element.click();
       if (sitemap_b1 === null)
         sitemap_b1 = await driver.findElement(By.xpath(
@@ -375,6 +382,7 @@ async function reverse_dfs(driver, element, parent) {
     // console.log(JSON.stringify(insert));
     // await driver.wait(until.titleIs('webdriver - Google Search'), 5000);
   } finally {
-    // await driver.quit();
+    if (!process.argv.includes('--stay'))
+      await driver.quit();
   }
 })();
