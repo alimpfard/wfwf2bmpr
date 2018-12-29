@@ -83,7 +83,11 @@ async function g_control(element) {
   if (cls.includes('scrollv'))
     return 'vert-scroll';
   if (cls.includes('annotate'))
-    return null;
+    return 'annotation';
+  if (cls.includes('listcont'))
+    return 'list';
+  if (cls.includes('headline'))
+    return 'headline';
   console.error(
     `[${new Date().toLocaleTimeString()}] [ControlType::Match] No matching control type found for class list ${cls}`
   );
@@ -146,6 +150,20 @@ async function traverse_children(driver, element, obj, parent, insert) {
   if (parent !== null)
     parent.children.push(obj);
 }
+
+async function fix_styles(obj, element) {
+  var cls = await element.getAttribute('class');
+  if (cls === null || cls.length == 0)
+    return;
+  cls = cls.split(' ');
+  if (cls.includes('ql-align-center'))
+    obj.properties['align'] = 'center';
+  if (cls.includes('ql-align-right'))
+    obj.properties['align'] = 'right';
+  if (cls.includes('ql-align-left'))
+    obj.properties['align'] = 'left';
+}
+
 async function reverse_dfs(driver, element, parent, insert) {
   var obj = Object.create(null);
   highlight_tick(driver, element);
@@ -156,7 +174,9 @@ async function reverse_dfs(driver, element, parent, insert) {
   let {
     x, y, w, h
   } = await getRect(element);
-  console.log(`Element ${id} is at {x: ${x}, y: ${y}, w: ${w}, h: ${h}}`);
+  console.error(
+    `[${new Date().toLocaleTimeString()}] [ElementCompiler::DiscoverElement] Element ${id} is at {x: ${x}, y: ${y}, w: ${w}, h: ${h}}`
+  );
   var type = await element.getTagName();
   if (type != 'div' && (!w || !h)) {
     // not visible
@@ -222,10 +242,15 @@ async function reverse_dfs(driver, element, parent, insert) {
       parent.controls.control.push(obj);
       break;
     case 'i':
-      obj.properties['style'] = 'italic';
+      obj.properties['italic'] = true;
+    case 'b':
+      obj.properties['bold'] = true;
+    case 'u':
+      obj.properties['underline'] = true;
     case 'p':
       obj['typeID'] = 'Paragraph';
       obj.properties['text'] = await element.getText();
+      await fix_styles(obj, element);
       if (parent !== null && obj.properties.text !== '')
         parent.controls.control.push(obj);
       break;
@@ -271,7 +296,7 @@ async function reverse_dfs(driver, element, parent, insert) {
             parent.controls.control.push(obj);
             break;
           case 'TextBlock':
-            obj['typeID'] = 'TextBlock';
+            obj['typeID'] = 'BlockOfText';
             parent.controls.control.push(obj);
             break;
           case 'webpage':
@@ -286,6 +311,53 @@ async function reverse_dfs(driver, element, parent, insert) {
             break;
           case 'TextArea':
             obj['typeID'] = 'TextArea';
+            parent.controls.control.push(obj);
+            break;
+          case 'list':
+            var ul = await element.findElements(By.tagName('li'));
+            var text = '';
+            for (li of ul) {
+              text += (await li.getAttribute('textContent')).replace('\n', '-') +
+                '\n';
+            }
+            obj.typeID = 'List';
+            obj.properties['text'] = text;
+            obj.properties['verticalScrollbar'] = false;
+            obj.properties['hasHeader'] = false;
+            parent.controls.control.push(obj);
+            break;
+          case 'annotation':
+            // get an annotation replacement
+            // HCurly over the annotation
+            // VCurly to the right of the annotation
+            var vcurly = JSON.parse(JSON.stringify(obj));
+            vcurly.ID = activeElementId++;
+            vcurly.typeID = 'VCurly';
+            vcurly.x += vcurly.w;
+            var text = await element.findElement(By.css(
+              'span>div')).getAttribute('textContent');
+            vcurly.w = 400; // TODO
+            vcurly.properties['text'] = text || "-annotation-";
+
+            var hcurly = JSON.parse(JSON.stringify(obj));
+            hcurly.ID = activeElementId++;
+            hcurly.typeID = 'HCurly';
+            hcurly.properties['text'] = ' ';
+            hcurly.properties['direction'] = 'top';
+            hcurly.y += hcurly.h;
+            hcurly.h = 20;
+
+            parent.controls.control.push(vcurly);
+            parent.controls.control.push(hcurly);
+
+            // go inside
+            obj['typeID'] = '__annotation__';
+            obj['_original_tag'] = type;
+            obj['_original_classlist'] = await element.getAttribute('class');
+            await traverse_children(driver, element, obj, parent, insert);
+            break;
+          case 'headline':
+            obj['typeID'] = 'BlockOfText';
             parent.controls.control.push(obj);
             break;
           default:
